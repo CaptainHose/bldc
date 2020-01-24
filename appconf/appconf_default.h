@@ -31,7 +31,7 @@
 #define APPCONF_TIMEOUT_BRAKE_CURRENT		0.0
 #endif
 #ifndef APPCONF_SEND_CAN_STATUS
-#define APPCONF_SEND_CAN_STATUS				CAN_STATUS_DISABLED
+#define APPCONF_SEND_CAN_STATUS				CAN_STATUS_1
 #endif
 #ifndef APPCONF_UAVCAN_ENABLE
 #define APPCONF_UAVCAN_ENABLE				false
@@ -39,11 +39,14 @@
 #ifndef APPCONF_UAVCAN_ESC_INDEX
 #define APPCONF_UAVCAN_ESC_INDEX			0
 #endif
+#ifndef APPCONF_UAVCAN_FAULT_ON_PANIC
+#define APPCONF_UAVCAN_FAULT_ON_PANIC       false
+#endif
 #ifndef APPCONF_SEND_CAN_STATUS_RATE_HZ
-#define APPCONF_SEND_CAN_STATUS_RATE_HZ		50
+#define APPCONF_SEND_CAN_STATUS_RATE_HZ		800
 #endif
 #ifndef APPCONF_CAN_BAUD_RATE
-#define APPCONF_CAN_BAUD_RATE				CAN_BAUD_500K
+#define APPCONF_CAN_BAUD_RATE				CAN_BAUD_1M
 #endif
 #ifndef APPCONF_PAIRING_DONE
 #define APPCONF_PAIRING_DONE				false
@@ -58,7 +61,7 @@
 // The default app is UART in case the UART port is used for
 // firmware updates.
 #ifndef APPCONF_APP_TO_USE
-#define APPCONF_APP_TO_USE					APP_UART
+#define APPCONF_APP_TO_USE					APP_NONE
 #endif
 
 // PPM app configureation

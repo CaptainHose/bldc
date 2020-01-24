@@ -268,7 +268,7 @@
  *	so it skips 2 ISR calls and execute the control loop in the 3rd call.
  */
 #ifndef FOC_CONTROL_LOOP_FREQ_DIVIDER
-#define FOC_CONTROL_LOOP_FREQ_DIVIDER	1
+#define FOC_CONTROL_LOOP_FREQ_DIVIDER	2
 #endif
 
 // Global configuration variables

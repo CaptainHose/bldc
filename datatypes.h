@@ -121,7 +121,9 @@ typedef enum {
 	FAULT_CODE_BRK,
 	FAULT_CODE_RESOLVER_LOT,
 	FAULT_CODE_RESOLVER_DOS,
-	FAULT_CODE_RESOLVER_LOS
+	FAULT_CODE_RESOLVER_LOS,
+	FAULT_CODE_ABS_MECH_POS_REACHED,
+	FAULT_CODE_UAVCAN_PANIC
 } mc_fault_code;
 
 typedef enum {
@@ -334,6 +336,10 @@ typedef struct {
 	BATTERY_TYPE si_battery_type;
 	int si_battery_cells;
 	float si_battery_ah;
+	bool si_use_mech_limits;
+	float si_mech_offset;
+	float si_mech_pose_limit_max;
+	float si_mech_pose_limit_min;
 } mc_configuration;
 
 // Applications to use
@@ -607,6 +613,7 @@ typedef struct {
 	// UAVCAN
 	bool uavcan_enable;
 	uint8_t uavcan_esc_index;
+	bool uavcan_fault_on_panic;
 
 	// Application to use
 	app_use app_to_use;

@@ -140,6 +140,10 @@ int32_t confgenerator_serialize_mcconf(uint8_t *buffer, const mc_configuration *
 	buffer[ind++] = conf->si_battery_type;
 	buffer[ind++] = (uint8_t)conf->si_battery_cells;
 	buffer_append_float32_auto(buffer, conf->si_battery_ah, &ind);
+	buffer[ind++] = conf->si_use_mech_limits;
+	buffer_append_float32_auto(buffer, conf->si_mech_offset, &ind);
+	buffer_append_float32_auto(buffer, conf->si_mech_pose_limit_max, &ind);
+	buffer_append_float32_auto(buffer, conf->si_mech_pose_limit_min, &ind);
 
 	return ind;
 }
@@ -160,6 +164,7 @@ int32_t confgenerator_serialize_appconf(uint8_t *buffer, const app_configuration
 	buffer[ind++] = conf->shutdown_mode;
 	buffer[ind++] = conf->uavcan_enable;
 	buffer[ind++] = (uint8_t)conf->uavcan_esc_index;
+	buffer[ind++] = conf->uavcan_fault_on_panic;
 	buffer[ind++] = conf->app_to_use;
 	buffer[ind++] = conf->app_ppm_conf.ctrl_type;
 	buffer_append_float32_auto(buffer, conf->app_ppm_conf.pid_max_erpm, &ind);
@@ -408,6 +413,10 @@ bool confgenerator_deserialize_mcconf(const uint8_t *buffer, mc_configuration *c
 	conf->si_battery_type = buffer[ind++];
 	conf->si_battery_cells = buffer[ind++];
 	conf->si_battery_ah = buffer_get_float32_auto(buffer, &ind);
+	conf->si_use_mech_limits = buffer[ind++];
+	conf->si_mech_offset = buffer_get_float32_auto(buffer, &ind);
+	conf->si_mech_pose_limit_max = buffer_get_float32_auto(buffer, &ind);
+	conf->si_mech_pose_limit_min = buffer_get_float32_auto(buffer, &ind);
 
 	return true;
 }
@@ -431,6 +440,7 @@ bool confgenerator_deserialize_appconf(const uint8_t *buffer, app_configuration 
 	conf->shutdown_mode = buffer[ind++];
 	conf->uavcan_enable = buffer[ind++];
 	conf->uavcan_esc_index = buffer[ind++];
+	conf->uavcan_fault_on_panic = buffer[ind++];
 	conf->app_to_use = buffer[ind++];
 	conf->app_ppm_conf.ctrl_type = buffer[ind++];
 	conf->app_ppm_conf.pid_max_erpm = buffer_get_float32_auto(buffer, &ind);
@@ -672,6 +682,10 @@ void confgenerator_set_defaults_mcconf(mc_configuration *conf) {
 	conf->si_battery_type = MCCONF_SI_BATTERY_TYPE;
 	conf->si_battery_cells = MCCONF_SI_BATTERY_CELLS;
 	conf->si_battery_ah = MCCONF_SI_BATTERY_AH;
+	conf->si_use_mech_limits = MCCONF_SI_USE_MECH_LIMITS;
+	conf->si_mech_offset = MCCONF_SI_MECH_OFFSET;
+	conf->si_mech_pose_limit_max = MCCONF_SI_MECH_POSE_LIMIT_MAX;
+	conf->si_mech_pose_limit_min = MCCONF_SI_MECH_POSE_LIMIT_MIN;
 }
 
 void confgenerator_set_defaults_appconf(app_configuration *conf) {
@@ -686,6 +700,7 @@ void confgenerator_set_defaults_appconf(app_configuration *conf) {
 	conf->shutdown_mode = APPCONF_SHUTDOWN_MODE;
 	conf->uavcan_enable = APPCONF_UAVCAN_ENABLE;
 	conf->uavcan_esc_index = APPCONF_UAVCAN_ESC_INDEX;
+	conf->uavcan_fault_on_panic = APPCONF_UAVCAN_FAULT_ON_PANIC;
 	conf->app_to_use = APPCONF_APP_TO_USE;
 	conf->app_ppm_conf.ctrl_type = APPCONF_PPM_CTRL_TYPE;
 	conf->app_ppm_conf.pid_max_erpm = APPCONF_PPM_PID_MAX_ERPM;

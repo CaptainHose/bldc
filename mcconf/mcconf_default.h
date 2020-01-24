@@ -22,7 +22,7 @@
 
 // Default settings
 #ifndef MCCONF_DEFAULT_MOTOR_TYPE
-#define MCCONF_DEFAULT_MOTOR_TYPE		MOTOR_TYPE_BLDC
+#define MCCONF_DEFAULT_MOTOR_TYPE		MOTOR_TYPE_FOC
 #endif
 #ifndef MCCONF_PWM_MODE
 #define MCCONF_PWM_MODE					PWM_MODE_SYNCHRONOUS // Default PWM mode
@@ -116,13 +116,13 @@
 
 // Speed PID parameters
 #ifndef MCCONF_S_PID_KP
-#define MCCONF_S_PID_KP					0.004	// Proportional gain
+#define MCCONF_S_PID_KP					0.0006	// Proportional gain
 #endif
 #ifndef MCCONF_S_PID_KI
-#define MCCONF_S_PID_KI					0.004	// Integral gain
+#define MCCONF_S_PID_KI					0.0006	// Integral gain
 #endif
 #ifndef MCCONF_S_PID_KD
-#define MCCONF_S_PID_KD					0.0001	// Derivative gain
+#define MCCONF_S_PID_KD					0.0000	// Derivative gain
 #endif
 #ifndef MCCONF_S_PID_KD_FILTER
 #define MCCONF_S_PID_KD_FILTER			0.2	// Derivative filter
@@ -136,13 +136,13 @@
 
 // Position PID parameters
 #ifndef MCCONF_P_PID_KP
-#define MCCONF_P_PID_KP					0.03	// Proportional gain
+#define MCCONF_P_PID_KP					0.004	// Proportional gain
 #endif
 #ifndef MCCONF_P_PID_KI
 #define MCCONF_P_PID_KI					0.0		// Integral gain
 #endif
 #ifndef MCCONF_P_PID_KD
-#define MCCONF_P_PID_KD					0.0004	// Derivative gain
+#define MCCONF_P_PID_KD					0.00001	// Derivative gain
 #endif
 #ifndef MCCONF_P_PID_KD_FILTER
 #define MCCONF_P_PID_KD_FILTER			0.2		// Derivative filter
@@ -219,13 +219,13 @@
 
 // FOC
 #ifndef MCCONF_FOC_CURRENT_KP
-#define MCCONF_FOC_CURRENT_KP			0.03
+#define MCCONF_FOC_CURRENT_KP			0.4196
 #endif
 #ifndef MCCONF_FOC_CURRENT_KI
-#define MCCONF_FOC_CURRENT_KI			50.0
+#define MCCONF_FOC_CURRENT_KI			825.30
 #endif
 #ifndef MCCONF_FOC_F_SW
-#define MCCONF_FOC_F_SW					25000.0
+#define MCCONF_FOC_F_SW					48000.0
 #endif
 #ifndef MCCONF_FOC_DT_US
 #define MCCONF_FOC_DT_US				0.12 // Microseconds for dead time compensation
@@ -237,10 +237,10 @@
 #define MCCONF_FOC_ENCODER_OFFSET		180.0
 #endif
 #ifndef MCCONF_FOC_ENCODER_RATIO
-#define MCCONF_FOC_ENCODER_RATIO		7.0
+#define MCCONF_FOC_ENCODER_RATIO		11.0
 #endif
 #ifndef MCCONF_FOC_SENSOR_MODE
-#define MCCONF_FOC_SENSOR_MODE			FOC_SENSOR_MODE_SENSORLESS
+#define MCCONF_FOC_SENSOR_MODE			FOC_SENSOR_MODE_ENCODER
 #endif
 #ifndef MCCONF_FOC_PLL_KP
 #define MCCONF_FOC_PLL_KP				2000.0
@@ -249,16 +249,16 @@
 #define MCCONF_FOC_PLL_KI				30000.0
 #endif
 #ifndef MCCONF_FOC_MOTOR_L
-#define MCCONF_FOC_MOTOR_L				0.000007
+#define MCCONF_FOC_MOTOR_L				0.00004196
 #endif
 #ifndef MCCONF_FOC_MOTOR_R
-#define MCCONF_FOC_MOTOR_R				0.015
+#define MCCONF_FOC_MOTOR_R				0.08253
 #endif
 #ifndef MCCONF_FOC_MOTOR_FLUX_LINKAGE
-#define MCCONF_FOC_MOTOR_FLUX_LINKAGE	0.00245
+#define MCCONF_FOC_MOTOR_FLUX_LINKAGE	0.003946
 #endif
 #ifndef MCCONF_FOC_OBSERVER_GAIN
-#define MCCONF_FOC_OBSERVER_GAIN		9e7		// Can be something like 600 / L
+#define MCCONF_FOC_OBSERVER_GAIN		7.78e6		// Can be something like 600 / L
 #endif
 #ifndef MCCONF_FOC_OBSERVER_GAIN_SLOW
 #define MCCONF_FOC_OBSERVER_GAIN_SLOW	0.3		// Observer gain scale at minimum duty cycle
@@ -382,7 +382,7 @@
 #define MCCONF_FOC_ENCODER_SINCOS_FILTER	0.5		// Sin/Cos Encoder signal filter constant
 #endif
 #ifndef MCCONF_M_SENSOR_PORT_MODE
-#define MCCONF_M_SENSOR_PORT_MODE		SENSOR_PORT_MODE_HALL // The mode of the hall_encoder port
+#define MCCONF_M_SENSOR_PORT_MODE		SENSOR_PORT_MODE_AS5047_SPI // The mode of the hall_encoder port
 #endif
 #ifndef MCCONF_M_INVERT_DIRECTION
 #define MCCONF_M_INVERT_DIRECTION		false // Invert the motor direction
@@ -417,10 +417,10 @@
 
 // Setup Info
 #ifndef MCCONF_SI_MOTOR_POLES
-#define MCCONF_SI_MOTOR_POLES			14 // Motor pole count
+#define MCCONF_SI_MOTOR_POLES			22 // Motor pole count
 #endif
 #ifndef MCCONF_SI_GEAR_RATIO
-#define MCCONF_SI_GEAR_RATIO			3 // Gear ratio
+#define MCCONF_SI_GEAR_RATIO			1 // Gear ratio
 #endif
 #ifndef MCCONF_SI_WHEEL_DIAMETER
 #define MCCONF_SI_WHEEL_DIAMETER		0.083 // Wheel Diameter
@@ -429,10 +429,22 @@
 #define MCCONF_SI_BATTERY_TYPE			BATTERY_TYPE_LIION_3_0__4_2 // Battery Type
 #endif
 #ifndef MCCONF_SI_BATTERY_CELLS
-#define MCCONF_SI_BATTERY_CELLS			3 // Battery Cells
+#define MCCONF_SI_BATTERY_CELLS			6 // Battery Cells
 #endif
 #ifndef MCCONF_SI_BATTERY_AH
 #define MCCONF_SI_BATTERY_AH			6.0 // Battery amp hours
+#endif
+#ifndef MCCONF_SI_USE_MECH_LIMITS
+#define MCCONF_SI_USE_MECH_LIMITS	    false // Mechanical offset for zero pose (deg)
+#endif
+#ifndef MCCONF_SI_MECH_OFFSET
+#define MCCONF_SI_MECH_OFFSET			0.0 // Mechanical offset for zero pose (deg)
+#endif
+#ifndef MCCONF_SI_MECH_POSE_LIMIT_MAX
+#define MCCONF_SI_MECH_POSE_LIMIT_MAX		120.0 // Allowed absolute mechanical positive rotation from offset
+#endif
+#ifndef MCCONF_SI_MECH_POSE_LIMIT_MIN
+#define MCCONF_SI_MECH_POSE_LIMIT_MIN		-120.0 // Allowed absolute mechanical negative rotation from offset
 #endif
 
 #endif /* MCCONF_DEFAULT_H_ */

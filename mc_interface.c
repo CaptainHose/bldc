@@ -78,6 +78,9 @@ static volatile float m_temp_motor;
 static volatile float m_gate_driver_voltage;
 static volatile float m_motor_current_unbalance;
 static volatile float m_motor_current_unbalance_error_rate;
+static volatile float m_mech_abs_pose; // absolute pose from mechanical home for position limits
+static volatile float m_mech_last_enc_diff; // debug
+static volatile float m_last_enc_pose; // last encoder value for mechanical position limits
 
 // Sampling variables
 #define ADC_SAMPLE_MAX_LEN		2000
@@ -226,6 +229,12 @@ void mc_interface_init(mc_configuration *configuration) {
 	default:
 		break;
 	}
+
+	// Initialize Pose limits for use in mechanical limiting, use the saved / configured mech_offset
+    if (encoder_is_configured()) {
+        m_last_enc_pose = encoder_read_deg();
+        m_mech_abs_pose = m_last_enc_pose + m_conf.si_mech_offset;
+    }
 }
 
 const volatile mc_configuration* mc_interface_get_configuration(void) {
@@ -420,6 +429,8 @@ const char* mc_interface_fault_to_string(mc_fault_code fault) {
     case FAULT_CODE_HIGH_OFFSET_CURRENT_SENSOR_3: return "FAULT_CODE_HIGH_OFFSET_CURRENT_SENSOR_3";
     case FAULT_CODE_UNBALANCED_CURRENTS: return "FAULT_CODE_UNBALANCED_CURRENTS";
     case FAULT_CODE_BRK: return "FAULT_CODE_BRK";
+    case FAULT_CODE_ABS_MECH_POS_REACHED: return "FAULT_CODE_ABS_MECH_POS_REACHED";
+    case FAULT_CODE_UAVCAN_PANIC: return "FAULT_CODE_UAVCAN_PANIC";
 	default: return "FAULT_UNKNOWN"; break;
 	}
 }
@@ -515,6 +526,32 @@ void mc_interface_set_pid_speed(float rpm) {
 	}
 }
 
+void mc_interface_set_pid_mech_speed(float rpm) {
+    if (fabsf(rpm) > 0.001) {
+        SHUTDOWN_RESET();
+    }
+
+    if (mc_interface_try_input()) {
+        return;
+    }
+
+    const volatile mc_configuration *conf = mc_interface_get_configuration();
+
+    switch (m_conf.motor_type) {
+        case MOTOR_TYPE_BLDC:
+        case MOTOR_TYPE_DC:
+            mcpwm_set_pid_speed(DIR_MULT * rpm * (conf->si_motor_poles / 2.0) * conf->si_gear_ratio);
+            break;
+
+        case MOTOR_TYPE_FOC:
+            mcpwm_foc_set_pid_speed(DIR_MULT * rpm * (conf->si_motor_poles / 2.0) * conf->si_gear_ratio );
+            break;
+
+        default:
+            break;
+    }
+}
+
 void mc_interface_set_pid_pos(float pos) {
 	SHUTDOWN_RESET();
 
@@ -522,7 +559,7 @@ void mc_interface_set_pid_pos(float pos) {
 		return;
 	}
 
-	m_position_set = pos;
+	m_position_set = pos - m_conf.si_mech_offset; // subtract corrent mech_offset, initializes to zero so no damage dun if feature is not in use
 
 	pos *= DIR_MULT;
 	utils_norm_angle(&pos);
@@ -668,6 +705,32 @@ void mc_interface_set_handbrake_rel(float val) {
 	mc_interface_set_handbrake(val * fabsf(m_conf.lo_current_motor_min_now));
 }
 
+/**
+ * resets the home rotation counter used for limiting motor rotation
+ *
+ */
+void mc_interface_reset_home(void) {
+    if (encoder_is_configured()) {
+        m_last_enc_pose = encoder_read_deg();
+        m_mech_abs_pose = 0;
+        m_conf.si_mech_offset = m_mech_abs_pose-m_last_enc_pose;
+    }
+}
+
+void mc_interface_set_home_offset(float offset) {
+    m_last_enc_pose = encoder_read_deg();
+    m_mech_abs_pose = m_last_enc_pose + offset;
+    m_conf.si_mech_offset = offset;
+}
+
+float mc_interface_get_home_diff(void) {
+    return m_mech_last_enc_diff;
+}
+
+float mc_interface_get_mech_abs_pose(void) {
+    return m_mech_abs_pose;
+}
+
 void mc_interface_brake_now(void) {
 	SHUTDOWN_RESET();
 
@@ -748,6 +811,14 @@ float mc_interface_get_sampling_frequency_now(void) {
 	return ret;
 }
 
+/**
+ * Calculate the current RPM of the motor. This is a signed value and the sign
+ * depends on the direction the motor is rotating in. Note that this value has
+ * to be divided by half the number of motor poles.
+ *
+ * @return
+ * The RPM value.
+ */
 float mc_interface_get_rpm(void) {
 	float ret = 0.0;
 
@@ -1279,6 +1350,20 @@ float mc_interface_get_speed(void) {
 }
 
 /**
+ * Get mechanical rpm based on motor pole settings and gear ratio.
+ *
+ * @return
+ * Speed, in rpm
+ */
+float mc_interface_get_mech_rpm(void) {
+    const volatile mc_configuration *conf = mc_interface_get_configuration();
+    const float rpm = mc_interface_get_rpm() / (conf->si_motor_poles / 2.0) / conf->si_gear_ratio;
+    return rpm;
+}
+
+
+
+/**
  * Get the distance traveled based on wheel diameter, gearing and motor pole settings.
  *
  * @return
@@ -1539,6 +1624,27 @@ void mc_interface_mc_timer_isr(void) {
 			mc_interface_fault_stop(FAULT_CODE_ABS_OVER_CURRENT);
 		}
 	}
+
+	// mechanical HW limits reached
+    if( m_conf.si_use_mech_limits &&
+       encoder_is_configured()) {
+        const float position = encoder_read_deg();
+        float delta = position - m_last_enc_pose;
+        m_last_enc_pose = position;
+        if ( delta > 180.0f ) {
+            delta -= 360.0f;
+        }
+        else if ( delta < -180.0f ) {
+            delta += 360.0f;
+        }
+        m_mech_abs_pose += delta;
+        m_mech_last_enc_diff = delta;
+
+        if (    ( m_mech_abs_pose < m_conf.si_mech_pose_limit_min )
+            ||  ( m_mech_abs_pose > m_conf.si_mech_pose_limit_max ) ) {
+            mc_interface_fault_stop( FAULT_CODE_ABS_MECH_POS_REACHED );
+        }
+    }
 
 	// DRV fault code
 	if (IS_DRV_FAULT()) {

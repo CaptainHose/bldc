@@ -20,12 +20,18 @@
 #include <string.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "canard_driver.h"
 #include "canard.h"
 #include "uavcan/equipment/esc/Status.h"
 #include "uavcan/equipment/esc/RawCommand.h"
 #include "uavcan/equipment/esc/RPMCommand.h"
+#include "uavcan/equipment/actuator/Command.h"
+#include "uavcan/equipment/actuator/ArrayCommand.h"
+#include "uavcan/equipment/actuator/Status.h"
+#include "uavcan/equipment/actuator/SetLimits.h"
+#include "uavcan/protocol/Panic.h"
 
 #include "conf_general.h"
 #include "app.h"
@@ -35,6 +41,7 @@
 #include "hw.h"
 #include "timeout.h"
 #include "terminal.h"
+#include "encoder.h"
 
 // Constants
 #define APP_NODE_NAME									"org.vesc." HW_NAME
@@ -58,6 +65,8 @@
 #define UNIQUE_ID_LENGTH_BYTES							16
 
 #define STATUS_MSGS_TO_STORE							10
+
+#define UAVCAN_PROTOCOL_PANIC_INTERVAL                  100 //ms
 
 // Private datatypes
 typedef struct {
@@ -130,6 +139,55 @@ static void sendEscStatus(void) {
 			CANARD_TRANSFER_PRIORITY_LOW,
 			buffer,
 			UAVCAN_EQUIPMENT_ESC_STATUS_MAX_SIZE);
+}
+
+static void sendPanic( void ) {
+    uint8_t buffer[UAVCAN_PROTOCOL_PANIC_MAX_SIZE];
+    uavcan_protocol_Panic panic;
+    uint8_t fault = (uint8_t) mc_interface_get_fault();
+    if ( fault == FAULT_CODE_NONE ||
+         fault == FAULT_CODE_UAVCAN_PANIC){
+        return;
+    }
+    // We can only print two digit fault codes, which should be plenty!
+    char fc[9];
+    itoa( fault, fc, 10);
+    char msg[7] = {'V', 'E', 'S','C','_',fc[0], fc[1]};
+    panic.reason_text.len = 7;
+    panic.reason_text.data = (uint8_t *)msg;
+    uavcan_protocol_Panic_encode(&panic, buffer);
+    static uint8_t transfer_id;
+    canardBroadcast(&canard,
+                    UAVCAN_PROTOCOL_PANIC_SIGNATURE,
+                    UAVCAN_PROTOCOL_PANIC_ID,
+                    &transfer_id,
+                    CANARD_TRANSFER_PRIORITY_HIGHEST,
+                    buffer,
+                    UAVCAN_PROTOCOL_PANIC_MAX_SIZE);
+}
+
+static void sendActuatorStatus(void) {
+    uint8_t buffer[UAVCAN_EQUIPMENT_ACTUATOR_STATUS_MAX_SIZE];
+    uavcan_equipment_actuator_Status status;
+    status.actuator_id = app_get_configuration()->uavcan_esc_index;
+    status.position = mc_interface_get_pid_pos_now() * M_PI / 180.0f; // this is mechanical angle corrected in [rad]
+    status.force = mc_interface_get_tot_current_directional();        // this is in [A], you'll need the current constant for your motor here!
+    status.speed = mc_interface_get_mech_rpm() * 2.0f * M_PI / 60.0f; // this is rotational speed in [rad/s]
+    status.power_rating_pct = (fabsf(mc_interface_get_tot_current()) /
+                               mc_interface_get_configuration()->l_current_max *
+                               mc_interface_get_configuration()->l_current_max_scale) * 100.0;
+
+    uavcan_equipment_actuator_Status_encode(&status, buffer);
+
+    static uint8_t transfer_id;
+
+    canardBroadcast(&canard,
+                    UAVCAN_EQUIPMENT_ACTUATOR_STATUS_SIGNATURE,
+                    UAVCAN_EQUIPMENT_ACTUATOR_STATUS_ID,
+                    &transfer_id,
+                    CANARD_TRANSFER_PRIORITY_LOW,
+                    buffer,
+                    UAVCAN_EQUIPMENT_ACTUATOR_STATUS_MAX_SIZE);
 }
 
 static void readUniqueID(uint8_t* out_uid) {
@@ -222,6 +280,34 @@ static void onTransferReceived(CanardInstance* ins, CanardRxTransfer* transfer) 
 				timeout_reset();
 			}
 		}
+    } else if ((transfer->transfer_type == CanardTransferTypeBroadcast) &&
+               (transfer->data_type_id == UAVCAN_EQUIPMENT_ACTUATOR_ARRAYCOMMAND_ID)) {
+        uavcan_equipment_actuator_ArrayCommand cmd;
+        uint8_t buffer[UAVCAN_EQUIPMENT_ACTUATOR_ARRAYCOMMAND_MAX_SIZE];
+        memset(buffer, 0, sizeof(buffer));
+        uint8_t *tmp = buffer;
+        if (uavcan_equipment_actuator_ArrayCommand_decode_internal(transfer, transfer->payload_len, &cmd, &tmp, 0) >= 0) {
+            for ( int i = 0; i < cmd.commands.len; i++){
+                if( cmd.commands.data[i].actuator_id == app_get_configuration()->uavcan_esc_index )
+                {
+                    switch ( cmd.commands.data[i].command_type ) {
+                        case UAVCAN_EQUIPMENT_ACTUATOR_COMMAND_COMMAND_TYPE_POSITION:
+                            mc_interface_set_pid_pos( cmd.commands.data[i].command_value * 180.0f / M_PI ); // vesc needs [deg] but UAVCAN uses [rad]
+                            timeout_reset();
+                            break;
+                        case UAVCAN_EQUIPMENT_ACTUATOR_COMMAND_COMMAND_TYPE_FORCE:
+                            mc_interface_set_current(cmd.commands.data[i].command_value); // in [A]
+                            timeout_reset();
+                            break;
+                        case UAVCAN_EQUIPMENT_ACTUATOR_COMMAND_COMMAND_TYPE_SPEED:
+                            mc_interface_set_pid_mech_speed(cmd.commands.data[i].command_value * 60 / ( 2.0f * M_PI )); // vesc needs [rpm], uavcan uses [rad/s]
+                            timeout_reset();
+                            break;
+                    }
+                    break;
+                }
+            }
+        }
 	} else if ((transfer->transfer_type == CanardTransferTypeBroadcast) &&
 			(transfer->data_type_id == UAVCAN_EQUIPMENT_ESC_STATUS_ID)) {
 		uavcan_equipment_esc_Status msg;
@@ -236,6 +322,37 @@ static void onTransferReceived(CanardInstance* ins, CanardRxTransfer* transfer) 
 				}
 			}
 		}
+	}
+	else if ((transfer->transfer_type == CanardTransferTypeBroadcast) &&
+            (transfer->data_type_id == UAVCAN_PROTOCOL_PANIC_ID)) {
+        // TODO: implement proper panic behaviour (wait for Panic min messages in panic max interval)
+        if(app_get_configuration()->uavcan_fault_on_panic) mc_interface_fault_stop(FAULT_CODE_UAVCAN_PANIC);
+    }
+	else if ((transfer->transfer_type == CanardTransferTypeBroadcast) &&
+             (transfer->data_type_id == UAVCAN_EQUIPMENT_ACTUATOR_SETLIMITS_ID)){
+        uavcan_equipment_actuator_SetLimits msg;
+        uint8_t buffer[UAVCAN_EQUIPMENT_ACTUATOR_SETLIMITS_MAX_SIZE];
+        memset(buffer, 0, sizeof(buffer));
+        uint8_t *tmp = buffer;
+        if ( uavcan_equipment_actuator_SetLimits_decode_internal(transfer, transfer->payload_len, &msg, &tmp, 0) >= 0 ){
+            if ( msg.actuator_id == app_get_configuration()->uavcan_esc_index ){
+                // read current esc configuration
+                if ( msg.home_now
+                && encoder_is_configured()){
+                    mc_interface_reset_home();
+                }
+                else {
+                    mc_interface_set_home_offset(msg.offset * 180.0f / M_PI);
+                }
+                mc_configuration mcconf = *mc_interface_get_configuration();
+                mcconf.si_use_mech_limits = msg.use_limits;
+                mcconf.si_mech_pose_limit_max = msg.limit_max * 180.0f / M_PI; // vesc is in [deg], uavcan is in [rad]
+                mcconf.si_mech_pose_limit_min = msg.limit_min * 180.0f / M_PI; // vesc is in [deg], uavcan is in [rad]
+                conf_general_store_mc_configuration(&mcconf);
+                mc_interface_set_configuration(&mcconf);
+            }
+        }
+
 	}
 }
 
@@ -273,11 +390,22 @@ static bool shouldAcceptTransfer(const CanardInstance* ins,
 		*out_data_type_signature = UAVCAN_EQUIPMENT_ESC_RPMCOMMAND_SIGNATURE;
 		return true;
 	}
-
+	if ((transfer_type == CanardTransferTypeBroadcast) && (data_type_id == UAVCAN_EQUIPMENT_ACTUATOR_ARRAYCOMMAND_ID)) {
+		*out_data_type_signature = UAVCAN_EQUIPMENT_ACTUATOR_ARRAYCOMMAND_SIGNATURE;
+		return true;
+	}
 	if ((transfer_type == CanardTransferTypeBroadcast) && (data_type_id == UAVCAN_EQUIPMENT_ESC_STATUS_ID)) {
 		*out_data_type_signature = UAVCAN_EQUIPMENT_ESC_STATUS_SIGNATURE;
 		return true;
 	}
+    if ((transfer_type == CanardTransferTypeBroadcast) && (data_type_id == UAVCAN_EQUIPMENT_ACTUATOR_SETLIMITS_ID)) {
+        *out_data_type_signature = UAVCAN_EQUIPMENT_ACTUATOR_SETLIMITS_SIGNATURE;
+        return true;
+    }
+    if ((transfer_type == CanardTransferTypeBroadcast) && (data_type_id == UAVCAN_PROTOCOL_PANIC_ID)) {
+        *out_data_type_signature = UAVCAN_PROTOCOL_PANIC_SIGNATURE;
+        return true;
+    }
 
 	return false;
 }
@@ -306,6 +434,8 @@ static THD_FUNCTION(canard_thread, arg) {
 
 	systime_t last_status_time = 0;
 	systime_t last_esc_status_time = 0;
+	systime_t last_panic_time = 0;
+
 
 	for (;;) {
 		const app_configuration *conf = app_get_configuration();
@@ -355,12 +485,24 @@ static THD_FUNCTION(canard_thread, arg) {
 					UAVCAN_NODE_STATUS_MESSAGE_SIZE);
 		}
 
-		if (ST2MS(chVTTimeElapsedSinceX(last_esc_status_time)) >= 1000 / conf->send_can_status_rate_hz &&
-				conf->send_can_status != CAN_STATUS_DISABLED) {
-			last_esc_status_time = chVTGetSystemTimeX();
-			sendEscStatus();
-		}
+        if( mc_interface_get_fault()!=FAULT_CODE_NONE
+            && mc_interface_get_fault()!= FAULT_CODE_UAVCAN_PANIC
+            && ST2US(chVTTimeElapsedSinceX(last_panic_time)) >= 1000 * UAVCAN_PROTOCOL_PANIC_INTERVAL ) {
+            last_panic_time = chVTGetSystemTimeX();
+            sendPanic();
+        }
 
-		chThdSleepMilliseconds(1);
+		if (ST2US(chVTTimeElapsedSinceX(last_esc_status_time)) >= 1000000 / conf->send_can_status_rate_hz  &&
+				conf->send_can_status == CAN_STATUS_1) {
+			last_esc_status_time = chVTGetSystemTimeX();
+			sendActuatorStatus();
+		}
+        else if (ST2US(chVTTimeElapsedSinceX(last_esc_status_time)) >= 1000000 / conf->send_can_status_rate_hz &&
+                conf->send_can_status != CAN_STATUS_DISABLED) {
+            last_esc_status_time = chVTGetSystemTimeX();
+            sendEscStatus();
+        }
+
+        chThdSleepMicroseconds(100);
 	}
 }
